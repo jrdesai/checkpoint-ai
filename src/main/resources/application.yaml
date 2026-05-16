@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: checkpoint-ai
+
+  # ─── DATABASE ─────────────────────────────────────────────
+  datasource:
+    url: jdbc:postgresql://localhost:5432/checkpoint_ai
+    username: checkpoint
+    password: checkpoint
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # ─── SPRING AI ────────────────────────────────────────────
+  ai:
+    google:
+      genai:
+        api-key: ${GOOGLE_API_KEY}
+        chat:
+          options:
+            model: gemini-3.1-flash-lite
+            temperature: 0.3
+        embedding:
+          api-key: ${GOOGLE_API_KEY}
+          text:
+            options:
+              model: text-embedding-004
+
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+        initialize-schema: true
+
+  # ─── TEMPORAL ───────────────────────────────────────────────
+  temporal:
+    connection:
+      target: local
+    workers-auto-discovery:
+      packages:
+        - io.github.jrdesai.checkpoint_ai
+    workers:
+      - task-queue: codebase-doc-generator
+        name: codebaseDocWorker
+  # ─── VIRTUAL THREADS ────────────────────────────────────────
+  threads:
+    virtual:
+      enabled: true
+
+# ─── ACTUATOR / OBSERVABILITY ─────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+
+# ─── LOGGING ──────────────────────────────────────────────────
+logging:
+  level:
+    io.github.jrdesai: DEBUG
+    io.temporal: INFO
+    org.springframework.ai: INFO
