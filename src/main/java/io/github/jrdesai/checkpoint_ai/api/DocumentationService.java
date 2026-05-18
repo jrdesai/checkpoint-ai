@@ -5,6 +5,7 @@ import io.github.jrdesai.checkpoint_ai.api.dto.WorkflowStatusResponse;
 import io.github.jrdesai.checkpoint_ai.domain.model.ApprovalDecision;
 import io.github.jrdesai.checkpoint_ai.domain.model.WorkflowStatus;
 import io.github.jrdesai.checkpoint_ai.domain.workflow.CodebaseDocumentationWorkflow;
+import io.temporal.api.enums.v1.WorkflowIdConflictPolicy;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowNotFoundException;
 import io.temporal.client.WorkflowOptions;
@@ -15,7 +16,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,11 +25,13 @@ public class DocumentationService {
 
 
     public String startWorkflow(String repoUrl) {
-        String workflowId = "doc-"+ UUID.randomUUID();
+        String repoName = repoUrl.replaceAll(".*[/\\\\]", "").replace(".git", "");
+        String workflowId = "doc-" + repoName;
         WorkflowOptions workflowOptions = WorkflowOptions.newBuilder()
                 .setWorkflowId(workflowId)
                 .setTaskQueue("codebase-doc-generator")
                 .setWorkflowExecutionTimeout(Duration.ofHours(2))
+                .setWorkflowIdConflictPolicy(WorkflowIdConflictPolicy.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING)
                 .build();
 
         CodebaseDocumentationWorkflow stub = workflowClient.newWorkflowStub(

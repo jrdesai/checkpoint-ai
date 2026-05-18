@@ -5,6 +5,7 @@ import io.temporal.activity.ActivityInterface;
 import io.temporal.activity.ActivityMethod;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Temporal activities interface for the codebase documentation workflow.
@@ -118,4 +119,30 @@ public interface CodebaseDocumentationActivities {
      */
     @ActivityMethod
     void handleRejection(DocumentDraft draft, String reason);
+
+    /**
+     * Load cached narratives for unchanged modules.
+     * Computes a SHA-256 hash of each module's source code and compares
+     * against stored hashes. Returns a map of filePath → cached narrative
+     * for modules whose content has not changed since the last approved run.
+     * Modules not in the map need to be re-explained by the LLM.
+     *
+     * @param repoName the repository name
+     * @param modules  all modules discovered in this run
+     * @return map of filePath → cached ModuleNarrative for unchanged modules
+     */
+    @ActivityMethod
+    Map<String, ModuleNarrative> loadCachedNarratives(String repoName, List<ModuleInfo> modules);
+
+    /**
+     * Save module hashes and narratives to the DB after a successful publish.
+     * Upserts — updates existing records and inserts new ones.
+     * Called once per approved run.
+     *
+     * @param repoName   the repository name
+     * @param modules    all modules from this run (source of the hash)
+     * @param narratives all narratives in the same order as modules
+     */
+    @ActivityMethod
+    void saveModuleCache(String repoName, List<ModuleInfo> modules, List<ModuleNarrative> narratives);
 }

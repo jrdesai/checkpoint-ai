@@ -9,6 +9,8 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import io.github.jrdesai.checkpoint_ai.audit.AuditRecord;
 import io.github.jrdesai.checkpoint_ai.domain.model.*;
+import io.github.jrdesai.checkpoint_ai.persistence.ProcessedModule;
+import io.github.jrdesai.checkpoint_ai.persistence.ProcessedModuleRepository;
 import io.temporal.activity.Activity;
 import io.temporal.spring.boot.ActivityImpl;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +25,11 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,6 +63,8 @@ public class CodebaseDocumentationActivitiesImpl
 
     // Output directory for generated documents
     private static final String OUTPUT_DIR = "output/documentation";
+
+    private final ProcessedModuleRepository processedModuleRepository;
 
     // ── STEP 1 ────────────────────────────────────────────────────────
 
@@ -201,6 +208,11 @@ public class CodebaseDocumentationActivitiesImpl
                 module.name(), complexity.cyclomaticComplexity(),
                 complexity.riskLevel());
 
+        // Heartbeat before the LLM call — tells Temporal this activity is alive.
+        // If the worker dies here, Temporal retries within heartbeatTimeout (30s)
+        // rather than waiting for the full startToCloseTimeout (10 min).
+        Activity.getExecutionContext().heartbeat(module.name());
+
         String prompt = buildExplainModulePrompt(module, complexity);
 
         String response = chatClient.prompt()
@@ -222,6 +234,10 @@ public class CodebaseDocumentationActivitiesImpl
         log.info("Analysing architecture across {} modules",
                 narratives.size());
 
+        Activity.getExecutionContext().heartbeat(
+                "Analysing architecture across " + narratives.size() + " modules"
+        );
+
         String prompt = buildArchitecturePrompt(narratives, complexityReports);
 
         String response = chatClient.prompt()
@@ -241,6 +257,10 @@ public class CodebaseDocumentationActivitiesImpl
             RepositoryInfo repoInfo) {
 
         log.info("Assembling documentation for: {}", repoInfo.repoName());
+
+        Activity.getExecutionContext().heartbeat(
+                "Assembling document for: " + repoInfo.repoName()
+        );
 
         String prompt = buildAssembleDocumentPrompt(
                 narratives, analysis, repoInfo
@@ -376,6 +396,67 @@ public class CodebaseDocumentationActivitiesImpl
             Reason: {}
             Workflow will terminate.
             """, draft.repoName(), reason);
+    }
+
+    @Override
+    public Map<String, ModuleNarrative> loadCachedNarratives(String repoName, List<ModuleInfo> modules) {
+        Map<String, ProcessedModule> stored = processedModuleRepository
+                .findByRepoName(repoName)
+                .stream()
+                .collect(Collectors.toMap(ProcessedModule::getFilePath, m -> m));
+
+        Map<String, ModuleNarrative> cache = new HashMap<>();
+
+        for (ModuleInfo module : modules) {
+            ProcessedModule record = stored.get(module.filePath());
+            if (record == null) continue; // never seen before — needs LLM
+
+            String currentHash = computeHash(module.sourceCode());
+            if (!currentHash.equals(record.getContentHash())) continue; // changed — needs LLM
+
+            try {
+                ModuleNarrative narrative = objectMapper.readValue(
+                        record.getNarrativeJson(), ModuleNarrative.class
+                );
+                cache.put(module.filePath(), narrative);
+                log.info("Cache hit — skipping LLM for: {}", module.name());
+            } catch (Exception e) {
+                log.warn("Failed to deserialise cached narrative for: {}", module.name());
+            }
+        }
+
+        log.info("Cache: {}/{} modules unchanged, {} need LLM",
+                cache.size(), modules.size(), modules.size() - cache.size());
+        return cache;
+    }
+
+    @Override
+    public void saveModuleCache(String repoName, List<ModuleInfo> modules, List<ModuleNarrative> narratives) {
+        for (int i = 0; i < modules.size(); i++) {
+            ModuleInfo module = modules.get(i);
+            ModuleNarrative narrative = narratives.get(i);
+
+            try {
+                String hash = computeHash(module.sourceCode());
+                String narrativeJson = objectMapper.writeValueAsString(narrative);
+
+                // Delete existing record if present, then insert fresh
+                processedModuleRepository
+                        .findByRepoNameAndFilePath(repoName, module.filePath())
+                        .ifPresent(processedModuleRepository::delete);
+
+                processedModuleRepository.save(new ProcessedModule(
+                        repoName,
+                        module.filePath(),
+                        hash,
+                        narrativeJson,
+                        Instant.now()
+                ));
+            } catch (Exception e) {
+                log.warn("Failed to cache module: {}", module.name(), e);
+            }
+        }
+        log.info("Saved module cache for {} modules in repo: {}", modules.size(), repoName);
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -686,6 +767,20 @@ public class CodebaseDocumentationActivitiesImpl
             return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    private String computeHash(String content) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(content.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
         }
     }
 }

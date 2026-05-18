@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Temporal workflow implementation for codebase documentation generation.
@@ -35,6 +36,9 @@ public class CodebaseDocumentationWorkflowImpl
                     CodebaseDocumentationActivities.class,
                     ActivityOptions.newBuilder()
                             .setStartToCloseTimeout(Duration.ofMinutes(10))
+                            // Temporal retries immediately if no heartbeat within this window
+                            // rather than waiting for the full startToCloseTimeout
+                            .setHeartbeatTimeout(Duration.ofSeconds(30))
                             .setRetryOptions(RetryOptions.newBuilder()
                                     .setMaximumAttempts(3)
                                     .setInitialInterval(Duration.ofSeconds(10))
@@ -87,6 +91,11 @@ public class CodebaseDocumentationWorkflowImpl
             complexityReports.add(report);
         }
 
+        // ── STEP 2b — Load cached narratives ─────────────────────────
+        Map<String, ModuleNarrative> cache = fastActivities.loadCachedNarratives(
+                repoInfo.repoName(), repoInfo.modules()
+        );
+
         // ── STEP 3 — LLM explanation per module ──────────────────────
         // One LLM call per module
         // Each call checkpointed independently — never repeated on crash
@@ -97,15 +106,20 @@ public class CodebaseDocumentationWorkflowImpl
             ModuleInfo module = repoInfo.modules().get(i);
             ComplexityReport complexity = complexityReports.get(i);
 
-            // LLM call — uses activities stub with 10 min timeout
-            ModuleNarrative narrative = activities.explainModule(
-                    module, complexity
-            );
-            narratives.add(narrative);
-
-            Workflow.getLogger(this.getClass())
-                    .info("Explained module {}/{}: {}",
-                            i + 1, repoInfo.modules().size(), module.name());
+            if (cache.containsKey(module.filePath())) {
+                // Unchanged — use cached narrative, no LLM call
+                narratives.add(cache.get(module.filePath()));
+                Workflow.getLogger(this.getClass())
+                        .info("Cache hit {}/{}: {}", i + 1,
+                                repoInfo.modules().size(), module.name());
+            } else {
+                // New or changed — call LLM
+                ModuleNarrative narrative = activities.explainModule(module, complexity);
+                narratives.add(narrative);
+                Workflow.getLogger(this.getClass())
+                        .info("Explained module {}/{}: {}", i + 1,
+                                repoInfo.modules().size(), module.name());
+            }
         }
 
         // ── STEP 4 — Architectural analysis ──────────────────────────
@@ -176,6 +190,11 @@ public class CodebaseDocumentationWorkflowImpl
         currentStatus = WorkflowStatus.PUBLISHING;
         DocumentationResult result = fastActivities.publishDocument(
                 draft, workflowId, approvalDecision
+        );
+
+        // ── STEP 8 — Save module cache ────────────────────────────────
+        fastActivities.saveModuleCache(
+                repoInfo.repoName(), repoInfo.modules(), narratives
         );
 
         currentStatus = WorkflowStatus.COMPLETED;
