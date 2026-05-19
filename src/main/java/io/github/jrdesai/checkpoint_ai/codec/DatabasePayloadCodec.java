@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DatabasePayloadCodec implements PayloadCodec {
     private final PayloadRepository payloadRepository;
-    private static final int SIZE_THRESHOLD_BYTES = 10_000;
+    private static final int SIZE_THRESHOLD_BYTES = 100_000;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 

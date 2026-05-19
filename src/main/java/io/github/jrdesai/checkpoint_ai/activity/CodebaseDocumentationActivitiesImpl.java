@@ -6,6 +6,9 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import io.github.jrdesai.checkpoint_ai.audit.AuditRecord;
 import io.github.jrdesai.checkpoint_ai.domain.model.*;
@@ -432,31 +435,58 @@ public class CodebaseDocumentationActivitiesImpl
 
     @Override
     public void saveModuleCache(String repoName, List<ModuleInfo> modules, List<ModuleNarrative> narratives) {
-        for (int i = 0; i < modules.size(); i++) {
-            ModuleInfo module = modules.get(i);
-            ModuleNarrative narrative = narratives.get(i);
+        try {
+            // Single query — load all existing records for this repo
+            List<ProcessedModule> existingList = processedModuleRepository.findByRepoName(repoName);
+            Map<String, ProcessedModule> existingMap = existingList.stream()
+                    .collect(Collectors.toMap(ProcessedModule::getFilePath, m -> m));
 
-            try {
+            // Identify orphans — files that were deleted or renamed in the repo
+            Set<String> incomingPaths = modules.stream()
+                    .map(ModuleInfo::filePath)
+                    .collect(Collectors.toSet());
+            List<ProcessedModule> toDelete = existingList.stream()
+                    .filter(m -> !incomingPaths.contains(m.getFilePath()))
+                    .collect(Collectors.toList());
+
+            if (!toDelete.isEmpty()) {
+                processedModuleRepository.deleteAllInBatch(toDelete);
+                log.info("Deleted {} orphaned cache entries for repo: {}", toDelete.size(), repoName);
+            }
+
+            List<ProcessedModule> toSave = new ArrayList<>();
+            for (int i = 0; i < modules.size(); i++) {
+                ModuleInfo module = modules.get(i);
+                ModuleNarrative narrative = narratives.get(i);
                 String hash = computeHash(module.sourceCode());
                 String narrativeJson = objectMapper.writeValueAsString(narrative);
 
-                // Delete existing record if present, then insert fresh
-                processedModuleRepository
-                        .findByRepoNameAndFilePath(repoName, module.filePath())
-                        .ifPresent(processedModuleRepository::delete);
-
-                processedModuleRepository.save(new ProcessedModule(
-                        repoName,
-                        module.filePath(),
-                        hash,
-                        narrativeJson,
-                        Instant.now()
-                ));
-            } catch (Exception e) {
-                log.warn("Failed to cache module: {}", module.name(), e);
+                ProcessedModule existing = existingMap.get(module.filePath());
+                if (existing != null) {
+                    // Update in-place — preserves same DB row, avoids unique constraint conflicts
+                    existing.update(hash, narrativeJson);
+                    toSave.add(existing);
+                } else {
+                    toSave.add(new ProcessedModule(
+                            repoName,
+                            module.filePath(),
+                            hash,
+                            narrativeJson,
+                            Instant.now()
+                    ));
+                }
             }
+
+            if (!toSave.isEmpty()) {
+                processedModuleRepository.saveAll(toSave);
+            }
+
+            log.info("Saved module cache. Updated/Inserted: {}, Deleted orphans: {} for repo: {}",
+                    toSave.size(), toDelete.size(), repoName);
+        } catch (Exception e) {
+            log.error("Failed to save module cache for repo: {}", repoName, e);
+            throw new RuntimeException("Failed to save module cache", e);
         }
-        log.info("Saved module cache for {} modules in repo: {}", modules.size(), repoName);
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -528,25 +558,54 @@ public class CodebaseDocumentationActivitiesImpl
      * ternary, &&, ||
      */
     private int calculateMethodComplexity(MethodDeclaration method) {
-        String body = method.toString();
-        int complexity = 1; // base complexity
-
-        // Count decision points
-        // Note: "if (" already captures "else if (" so we do not count "else if" separately
-        complexity += countOccurrences(body, "if (");
-        complexity += countOccurrences(body, "if(");
-        complexity += countOccurrences(body, "while (");
-        complexity += countOccurrences(body, "while(");
-        complexity += countOccurrences(body, "for (");
-        complexity += countOccurrences(body, "for(");
-        complexity += countOccurrences(body, "case ");
-        complexity += countOccurrences(body, "catch (");
-        complexity += countOccurrences(body, "catch(");
-        complexity += countOccurrences(body, " && ");
-        complexity += countOccurrences(body, " || ");
-        complexity += countOccurrences(body, " ? ");
-
-        return complexity;
+        AtomicInteger complexity = new AtomicInteger(1);
+        method.accept(new VoidVisitorAdapter<Void>() {
+            @Override
+            public void visit(IfStmt n, Void arg) {
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(WhileStmt n, Void arg) {
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(ForStmt n, Void arg) {
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(ForEachStmt n, Void arg) {
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(SwitchEntry n, Void arg) {
+                super.visit(n, arg);
+                if (n.getLabels().isNonEmpty()) { // Count switch cases
+                    complexity.incrementAndGet();
+                }
+            }
+            @Override
+            public void visit(CatchClause n, Void arg) {
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(ConditionalExpr n, Void arg) { // Ternary ? :
+                super.visit(n, arg);
+                complexity.incrementAndGet();
+            }
+            @Override
+            public void visit(BinaryExpr n, Void arg) { // Logical && and ||
+                super.visit(n, arg);
+                if (n.getOperator() == BinaryExpr.Operator.AND || n.getOperator() == BinaryExpr.Operator.OR) {
+                    complexity.incrementAndGet();
+                }
+            }
+        }, null);
+        return complexity.get();
     }
 
     private int countOccurrences(String text, String pattern) {

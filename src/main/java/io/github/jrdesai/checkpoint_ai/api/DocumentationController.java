@@ -3,6 +3,7 @@ package io.github.jrdesai.checkpoint_ai.api;
 import io.github.jrdesai.checkpoint_ai.api.dto.ApprovalRequest;
 import io.github.jrdesai.checkpoint_ai.api.dto.GenerateRequest;
 import io.github.jrdesai.checkpoint_ai.api.dto.WorkflowStatusResponse;
+import io.github.jrdesai.checkpoint_ai.domain.model.DocumentDraft;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -46,6 +47,11 @@ public class DocumentationController {
         WorkflowStatusResponse response = documentationService.getStatus(id);
 
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping(value = "/{id}/draft")
+    public ResponseEntity<DocumentDraft> draft(@PathVariable String id) {
+        return ResponseEntity.ok(documentationService.getDraft(id));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

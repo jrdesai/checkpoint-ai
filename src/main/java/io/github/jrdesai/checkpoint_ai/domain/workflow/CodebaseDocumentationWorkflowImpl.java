@@ -28,6 +28,7 @@ public class CodebaseDocumentationWorkflowImpl
     private String repoName;
 
     private ApprovalDecision approvalDecision = null;
+    private DocumentDraft currentDraft = null;
 
     // Activity stub
     // LLM calls (steps 3, 4, 5) get longer timeouts
@@ -132,9 +133,10 @@ public class CodebaseDocumentationWorkflowImpl
         // ── STEP 5 — Assemble document ────────────────────────────────
         // One LLM call — produces the full markdown document
         currentStatus = WorkflowStatus.ASSEMBLING_DOCUMENT;
-        DocumentDraft draft = activities.assembleDocument(
+        currentDraft = activities.assembleDocument(
                 narratives, architecture, repoInfo
         );
+        DocumentDraft draft = currentDraft;
 
         // ── STEP 6 — Human approval ───────────────────────────────────
         // Notify reviewer then sleep until signal received
@@ -228,6 +230,11 @@ public class CodebaseDocumentationWorkflowImpl
     @Override
     public String getRepoName() {
         return repoName;
+    }
+
+    @Override
+    public DocumentDraft getDraft() {
+        return currentDraft;
     }
 
 }

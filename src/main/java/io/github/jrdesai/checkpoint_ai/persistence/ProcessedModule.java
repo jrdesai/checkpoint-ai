@@ -39,4 +39,15 @@ public class ProcessedModule {
         this.narrativeJson = narrativeJson;
         this.processedAt = processedAt;
     }
+
+    /**
+     * Update an existing record in-place.
+     * Preserves the same DB row and ID — avoids unique constraint violations
+     * that can occur with delete-then-insert on (repo_name, file_path).
+     */
+    public void update(String contentHash, String narrativeJson) {
+        this.contentHash = contentHash;
+        this.narrativeJson = narrativeJson;
+        this.processedAt = Instant.now();
+    }
 }

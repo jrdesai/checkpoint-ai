@@ -1,6 +1,7 @@
 package io.github.jrdesai.checkpoint_ai.domain.workflow;
 
 import io.github.jrdesai.checkpoint_ai.domain.model.ApprovalDecision;
+import io.github.jrdesai.checkpoint_ai.domain.model.DocumentDraft;
 import io.github.jrdesai.checkpoint_ai.domain.model.DocumentationResult;
 import io.github.jrdesai.checkpoint_ai.domain.model.WorkflowStatus;
 import io.temporal.workflow.QueryMethod;
@@ -66,4 +67,15 @@ public interface CodebaseDocumentationWorkflow {
      */
     @QueryMethod
     String getRepoName();
+
+    /**
+     * Query method — returns the assembled document draft.
+     * Available once Step 5 (assembleDocument) completes.
+     * Allows reviewers to read the full document before approving or rejecting.
+     * Returns null if the document has not been assembled yet.
+     *
+     * @return the document draft, or null if not yet available
+     */
+    @QueryMethod
+    DocumentDraft getDraft();
 }
