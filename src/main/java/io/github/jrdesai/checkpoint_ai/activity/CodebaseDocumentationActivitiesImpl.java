@@ -532,9 +532,9 @@ public class CodebaseDocumentationActivitiesImpl
         int complexity = 1; // base complexity
 
         // Count decision points
+        // Note: "if (" already captures "else if (" so we do not count "else if" separately
         complexity += countOccurrences(body, "if (");
         complexity += countOccurrences(body, "if(");
-        complexity += countOccurrences(body, "else if");
         complexity += countOccurrences(body, "while (");
         complexity += countOccurrences(body, "while(");
         complexity += countOccurrences(body, "for (");
