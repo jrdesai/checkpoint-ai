@@ -54,6 +54,11 @@ spring:
     virtual:
       enabled: true
 
+# ─── PAYLOAD CODEC ────────────────────────────────────────────
+temporal:
+  payload:
+    size-threshold-bytes: 100000
+
 # ─── ACTUATOR / OBSERVABILITY ─────────────────────────────────
 management:
   endpoints:

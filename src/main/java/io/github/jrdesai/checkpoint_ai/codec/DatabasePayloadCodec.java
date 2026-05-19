@@ -10,6 +10,7 @@ import io.temporal.api.common.v1.Payload;
 import io.temporal.payload.codec.PayloadCodec;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -23,7 +24,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DatabasePayloadCodec implements PayloadCodec {
     private final PayloadRepository payloadRepository;
-    private static final int SIZE_THRESHOLD_BYTES = 100_000;
+
+    @Value("${temporal.payload.size-threshold-bytes:100000}")
+    private int sizeThresholdBytes;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -33,7 +36,7 @@ public class DatabasePayloadCodec implements PayloadCodec {
     public @NonNull List<Payload> encode(@NonNull List<Payload> payloads) {
         return payloads.stream()
                 .map(payload -> {
-                    if (payload.getSerializedSize() > SIZE_THRESHOLD_BYTES) {
+                    if (payload.getSerializedSize() > sizeThresholdBytes) {
                         return storeAndReplace(payload);
                     }
                     return payload;

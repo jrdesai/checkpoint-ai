@@ -15,9 +15,8 @@ This document tracks planned improvements, known gaps, and future feature ideas 
 
 ## Short Term
 
-### Payload codec threshold
-- Raise `SIZE_THRESHOLD_BYTES` from `10_000` (10KB) to `100_000` (100KB) or `256_000` (256KB)
-- Current threshold is too aggressive — almost every activity invocation triggers a DB write
+### ~~Payload codec threshold~~ ✅
+- Raised from `10_000` (10KB) to `100_000` (100KB)
 - Temporal handles payloads up to 256KB natively without issues
 
 ### Payload record cleanup
@@ -25,9 +24,9 @@ This document tracks planned improvements, known gaps, and future feature ideas 
 - Add a scheduled job to delete payload records older than 7 days
 - Only safe to delete records from completed, rejected, or terminated workflows
 
-### Externalise `SIZE_THRESHOLD_BYTES`
-- Move the hardcoded threshold in `DatabasePayloadCodec` to `application.yaml`
-- Makes it configurable without code changes
+### ~~Externalise `SIZE_THRESHOLD_BYTES`~~ ✅
+- Moved to `application.yaml` under `temporal.payload.size-threshold-bytes`
+- Defaults to `100000` if not set; configurable without code changes
 
 ### Temp directory cleanup
 - `cloneRepository` creates a temp directory via `Files.createTempDirectory("checkpoint-")` with no cleanup
@@ -108,6 +107,6 @@ This document tracks planned improvements, known gaps, and future feature ideas 
 |---|---|---|
 | Payload records never deleted | Medium | Accumulates indefinitely — add TTL cleanup job |
 | Temp cloned repos never deleted | Medium | Disk space leak on repeated runs |
-| `SIZE_THRESHOLD_BYTES` too low | Low | Causes excessive DB writes — raise to 100KB+ |
+| ~~`SIZE_THRESHOLD_BYTES` too low~~ | ~~Low~~ | ✅ Raised to 100KB, now configurable via `application.yaml` |
 | No auth on API endpoints | Low | Acceptable for local personal use; required before any public deployment |
 | LLM output quality varies | Low | Prompts are functional but not optimised; multi-pass review would improve accuracy |
