@@ -4,16 +4,24 @@ This document tracks planned improvements, known gaps, and future feature ideas 
 
 ---
 
-## In Progress
+## Recently Shipped
 
-### Draft preview endpoint
+### Draft preview endpoint ✅
 - `GET /api/docs/{workflowId}/draft` — expose the assembled document before approval
-- Allows reviewers to read the full markdown content before approving or rejecting
 - Implemented via Temporal query handler — no disk writes required
+
+### Revision loop ✅
+- `POST /api/docs/{workflowId}/revise` — reviewers request changes instead of only approve/reject
+- Workflow regenerates the draft via a single `reviseDocument` LLM call with the feedback, then re-presents for approval
+- Capped at 3 rounds; cost accumulates across revisions
 
 ---
 
 ## Short Term
+
+### Expose revision count via query
+- Signals are fire-and-forget, so `POST /revise` returns 200 even when the 3-round limit is reached (the signal is silently ignored with a warn log)
+- Add a `@QueryMethod getRevisionCount()` and have `DocumentationService` check it before signalling, returning 409 when the budget is spent
 
 ### ~~Payload codec threshold~~ ✅
 - Raised from `10_000` (10KB) to `100_000` (100KB)
@@ -51,6 +59,11 @@ This document tracks planned improvements, known gaps, and future feature ideas 
 - `DocumentationServiceTest` — verify workflow ID derivation, signal dispatch, 404 handling with mocked Temporal client
 - `ModuleCacheTest` — verify cache hits/misses based on hash comparison, orphan cleanup, batch upsert behaviour
 - `WorkflowIntegrationTest` — end-to-end workflow test using Temporal's `TestWorkflowEnvironment`
+
+### Persistent reviewer feedback across runs
+- Store revision/rejection feedback in PostgreSQL keyed by repo + module
+- Inject past feedback into prompts on subsequent runs ("previous reviewer noted X — be precise")
+- Makes the system learn from human corrections instead of repeating mistakes
 
 ### Cost cap before starting
 - After `cloneAndInventory`, estimate the LLM cost: `modules × avg tokens per file × price per token`

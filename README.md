@@ -14,7 +14,7 @@ LLM calls are made through [Spring AI](https://docs.spring.io/spring-ai/referenc
 - **Incremental re-runs** — SHA-256 hashes each source file after an approved run; subsequent runs skip unchanged modules entirely, reducing LLM calls and cost proportionally
 - **Heartbeating** — activities send a heartbeat every 30 seconds; Temporal detects a dead worker and retries within seconds rather than waiting for the full timeout
 - **Idempotent workflow start** — workflow ID is derived from the repo name; calling generate twice returns the existing workflow instead of starting a duplicate run
-- **Human-in-the-loop approval** — workflow pauses after document assembly and waits for an approve or reject signal before publishing; times out after 48 hours
+- **Human-in-the-loop review** — workflow pauses after document assembly; reviewers can preview the draft, request revisions with feedback (the LLM regenerates the draft, up to 3 rounds), then approve or reject; times out after 48 hours
 - **Provider-agnostic LLM** — all LLM calls go through Spring AI's `ChatClient`; swapping from Gemini to OpenAI or Ollama requires only a config change
 - **Payload codec** — large Temporal payloads are transparently offloaded to PostgreSQL to stay within Temporal's 2MB limit
 - **Audit trail** — every approved run writes token usage, cost, reviewer, and timestamp to `audit.json` alongside the generated document
@@ -38,6 +38,8 @@ POST /api/docs/generate  →  repoUrl
 │  Step 5   Assemble markdown document              ← Spring AI        │
 │  Step 6   Notify reviewer, sleep until signal                        │
 │                                                                      │
+│        GET  /api/docs/{id}/draft    — preview the draft              │
+│        POST /api/docs/{id}/revise   — request changes (loops to 6)   │
 │        POST /api/docs/{id}/approve  or  /reject                      │
 │                                                                      │
 │  Step 7   Publish to output/{workflowId}/architecture.md             │
@@ -147,7 +149,25 @@ curl http://localhost:8080/api/docs/{workflowId}/status
 }
 ```
 
-Possible statuses: `STARTED` → `CLONING_REPOSITORY` → `ANALYSING_COMPLEXITY` → `EXPLAINING_MODULES` → `ANALYSING_ARCHITECTURE` → `ASSEMBLING_DOCUMENT` → `AWAITING_APPROVAL` → `PUBLISHING` → `COMPLETED` / `REJECTED` / `FAILED`
+Possible statuses: `STARTED` → `CLONING_REPOSITORY` → `ANALYSING_COMPLEXITY` → `EXPLAINING_MODULES` → `ANALYSING_ARCHITECTURE` → `ASSEMBLING_DOCUMENT` → `AWAITING_APPROVAL` (→ `REVISING` → `AWAITING_APPROVAL`) → `PUBLISHING` → `COMPLETED` / `REJECTED` / `FAILED`
+
+### Preview the draft
+
+```bash
+curl http://localhost:8080/api/docs/{workflowId}/draft
+```
+
+Available once the document is assembled (from `AWAITING_APPROVAL` onwards) — served by a Temporal query handler while the workflow sleeps at the approval gate. Returns 404 if the draft is not ready yet.
+
+### Request a revision
+
+```bash
+curl -X POST http://localhost:8080/api/docs/{workflowId}/revise \
+  -H "Content-Type: application/json" \
+  -d '{"reviewerName": "Your Name", "feedback": "Add a TL;DR section at the top"}'
+```
+
+The workflow regenerates the draft with a single LLM call applying the feedback, then returns to `AWAITING_APPROVAL` with a fresh 48-hour window. Capped at 3 revision rounds per run; LLM cost accumulates across rounds and is reflected in the audit trail.
 
 ### Approve
 
