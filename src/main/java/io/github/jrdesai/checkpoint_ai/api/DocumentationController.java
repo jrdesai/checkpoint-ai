@@ -2,6 +2,7 @@ package io.github.jrdesai.checkpoint_ai.api;
 
 import io.github.jrdesai.checkpoint_ai.api.dto.ApprovalRequest;
 import io.github.jrdesai.checkpoint_ai.api.dto.GenerateRequest;
+import io.github.jrdesai.checkpoint_ai.api.dto.RevisionRequestDto;
 import io.github.jrdesai.checkpoint_ai.api.dto.WorkflowStatusResponse;
 import io.github.jrdesai.checkpoint_ai.domain.model.DocumentDraft;
 import jakarta.validation.Valid;
@@ -38,6 +39,13 @@ public class DocumentationController {
     @PostMapping(value="/{id}/reject")
     public ResponseEntity<Void> reject(@PathVariable String id, @Valid @RequestBody ApprovalRequest request){
         documentationService.submitApproval(id, request, false);
+
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping(value = "/{id}/revise")
+    public ResponseEntity<Void> revise(@PathVariable String id, @Valid @RequestBody RevisionRequestDto request) {
+        documentationService.requestRevision(id, request);
 
         return ResponseEntity.ok().build();
     }

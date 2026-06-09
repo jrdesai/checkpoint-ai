@@ -30,6 +30,10 @@ public class CodebaseDocumentationWorkflowImpl
     private ApprovalDecision approvalDecision = null;
     private DocumentDraft currentDraft = null;
 
+    private RevisionRequest revisionRequest = null;
+    private int revisionCount = 0;
+    private static final int MAX_REVISIONS = 3;
+
     // Activity stub
     // LLM calls (steps 3, 4, 5) get longer timeouts
     private final CodebaseDocumentationActivities activities =
@@ -143,13 +147,30 @@ public class CodebaseDocumentationWorkflowImpl
         currentStatus = WorkflowStatus.AWAITING_APPROVAL;
         fastActivities.notifyReviewerReady(draft, workflowId);
 
-        // Workflow sleeps here — no thread held, no resources wasted
-        // Server can restart many times — workflow stays waiting
-        // Times out after 48 hours if no decision received
-        boolean signalReceived = Workflow.await(
-                Duration.ofHours(48),
-                () -> approvalDecision != null
-        );
+        boolean signalReceived;
+        while (true) {
+            signalReceived = Workflow.await(
+                    Duration.ofHours(48),
+                    () -> approvalDecision != null || revisionRequest != null
+            );
+
+            // Timeout or final decision — leave the loop
+            if (!signalReceived || approvalDecision != null) {
+                break;
+            }
+
+            // Revision requested — regenerate and present again
+            currentStatus = WorkflowStatus.REVISING;
+            revisionCount++;
+            RevisionRequest request = revisionRequest;
+            revisionRequest = null;   // reset BEFORE the activity call
+
+            currentDraft = activities.reviseDocument(currentDraft, request.feedback());
+            draft = currentDraft;
+
+            currentStatus = WorkflowStatus.AWAITING_APPROVAL;
+            fastActivities.notifyReviewerReady(draft, workflowId);
+        }
 
         // ── STEP 6b — Handle timeout ──────────────────────────────────
         if (!signalReceived || approvalDecision == null) {
@@ -237,4 +258,13 @@ public class CodebaseDocumentationWorkflowImpl
         return currentDraft;
     }
 
+    @Override
+    public void requestRevision(RevisionRequest request) {
+        if (revisionCount >= MAX_REVISIONS) {
+            Workflow.getLogger(this.getClass())
+                    .warn("Revision limit reached, ignoring request from {}", request.reviewerName());
+            return;
+        }
+        this.revisionRequest = request;
+    }
 }

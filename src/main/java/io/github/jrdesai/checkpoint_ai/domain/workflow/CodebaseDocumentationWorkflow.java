@@ -1,9 +1,6 @@
 package io.github.jrdesai.checkpoint_ai.domain.workflow;
 
-import io.github.jrdesai.checkpoint_ai.domain.model.ApprovalDecision;
-import io.github.jrdesai.checkpoint_ai.domain.model.DocumentDraft;
-import io.github.jrdesai.checkpoint_ai.domain.model.DocumentationResult;
-import io.github.jrdesai.checkpoint_ai.domain.model.WorkflowStatus;
+import io.github.jrdesai.checkpoint_ai.domain.model.*;
 import io.temporal.workflow.QueryMethod;
 import io.temporal.workflow.SignalMethod;
 import io.temporal.workflow.WorkflowInterface;
@@ -78,4 +75,14 @@ public interface CodebaseDocumentationWorkflow {
      */
     @QueryMethod
     DocumentDraft getDraft();
+
+    /**
+     * Signal method — receives the revision request.
+     * Called via REST API when a reviewer wants to revise the draft.
+     *
+     * @param request the reviewer's revision request
+     */
+
+    @SignalMethod
+    void requestRevision(RevisionRequest request);
 }

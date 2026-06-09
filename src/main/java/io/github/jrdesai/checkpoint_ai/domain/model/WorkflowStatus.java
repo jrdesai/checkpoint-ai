@@ -15,5 +15,6 @@ public enum WorkflowStatus {
     PUBLISHING,
     COMPLETED,
     REJECTED,
-    FAILED
+    FAILED,
+    REVISING
 }

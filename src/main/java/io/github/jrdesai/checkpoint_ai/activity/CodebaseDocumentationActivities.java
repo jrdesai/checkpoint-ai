@@ -97,6 +97,18 @@ public interface CodebaseDocumentationActivities {
     void notifyReviewerReady(DocumentDraft draft, String workflowId);
 
     /**
+     * Step 6 (revision) — Revise the assembled document based on reviewer feedback.
+     * One LLM call — takes the current draft plus feedback, returns a corrected draft.
+     * Cheaper than re-assembling from narratives: only the flagged issues change.
+     *
+     * @param draft    the current document draft
+     * @param feedback the reviewer's requested changes
+     * @return revised document draft awaiting re-approval
+     */
+    @ActivityMethod
+    DocumentDraft reviseDocument(DocumentDraft draft, String feedback);
+
+    /**
      * Step 7 — Publish the approved document.
      * Writes the final markdown to the output folder.
      * Idempotent — safe to retry, will not duplicate output.

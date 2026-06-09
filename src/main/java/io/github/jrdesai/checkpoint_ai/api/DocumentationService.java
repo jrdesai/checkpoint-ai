@@ -1,9 +1,11 @@
 package io.github.jrdesai.checkpoint_ai.api;
 
 import io.github.jrdesai.checkpoint_ai.api.dto.ApprovalRequest;
+import io.github.jrdesai.checkpoint_ai.api.dto.RevisionRequestDto;
 import io.github.jrdesai.checkpoint_ai.api.dto.WorkflowStatusResponse;
 import io.github.jrdesai.checkpoint_ai.domain.model.ApprovalDecision;
 import io.github.jrdesai.checkpoint_ai.domain.model.DocumentDraft;
+import io.github.jrdesai.checkpoint_ai.domain.model.RevisionRequest;
 import io.github.jrdesai.checkpoint_ai.domain.model.WorkflowStatus;
 import io.github.jrdesai.checkpoint_ai.domain.workflow.CodebaseDocumentationWorkflow;
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy;
@@ -91,6 +93,23 @@ public class DocumentationService {
                         "Draft not yet available — workflow may still be processing");
             }
             return draft;
+        } catch (WorkflowNotFoundException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Workflow not found: " + workflowId);
+        }
+    }
+
+    public void requestRevision(String workflowId, RevisionRequestDto request) {
+        try {
+            CodebaseDocumentationWorkflow stub = workflowClient.newWorkflowStub(
+                    CodebaseDocumentationWorkflow.class, workflowId
+            );
+            RevisionRequest revisionRequest = new RevisionRequest(
+                    request.reviewerName(),
+                    request.feedback(),
+                    Instant.now()
+            );
+            stub.requestRevision(revisionRequest);
         } catch (WorkflowNotFoundException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "Workflow not found: " + workflowId);

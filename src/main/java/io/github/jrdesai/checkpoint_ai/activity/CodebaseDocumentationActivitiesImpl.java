@@ -306,6 +306,49 @@ public class CodebaseDocumentationActivitiesImpl
         );
     }
 
+    @Override
+    public DocumentDraft reviseDocument(DocumentDraft draft, String feedback) {
+
+        log.info("Revising document for: {}", draft.repoName());
+
+        Activity.getExecutionContext().heartbeat(
+                "Revising document for: " + draft.repoName()
+        );
+
+        String prompt = buildReviseDocumentPrompt(draft, feedback);
+
+        ChatResponse response = chatClient.prompt()
+                .user(prompt)
+                .call()
+                .chatResponse();
+
+        if (response == null) {
+            throw new RuntimeException("LLM returned null response");
+        }
+        String revisedMarkdown = Optional.ofNullable(response.getResult())
+                .map(Generation::getOutput)
+                .map(AbstractMessage::getText)
+                .orElseThrow(() -> new RuntimeException("LLM returned empty response"));
+        int inputTokens = Objects.requireNonNullElse(
+                response.getMetadata().getUsage().getPromptTokens(), 0);
+        int outputTokens = Objects.requireNonNullElse(
+                response.getMetadata().getUsage().getCompletionTokens(), 0);
+
+        double revisionCost = (inputTokens * 0.000000125)
+                + (outputTokens * 0.000000375);
+
+        return new DocumentDraft(
+                draft.workflowId(),
+                draft.repoName(),
+                revisedMarkdown,
+                draft.modulesCovered(),                      // unchanged — same modules
+                inputTokens,
+                outputTokens,
+                draft.estimatedCostUsd() + revisionCost,     // accumulate across revisions
+                Instant.now()
+        );
+    }
+
     // ── STEP 6a ───────────────────────────────────────────────────────
 
     @Override
@@ -766,6 +809,22 @@ public class CodebaseDocumentationActivitiesImpl
         );
     }
 
+    private String buildReviseDocumentPrompt(DocumentDraft draft, String feedback) {
+        return """
+        You are revising technical documentation based on reviewer feedback.
+
+        REVIEWER FEEDBACK:
+        %s
+
+        CURRENT DOCUMENT:
+        %s
+
+        Apply the reviewer's feedback to the document. Only change what the
+        feedback asks for — preserve all other content, structure, and
+        formatting exactly as it is. Return the complete revised markdown
+        document and nothing else.
+        """.formatted(feedback, draft.markdownContent());
+    }
     // ── RESPONSE PARSERS ──────────────────────────────────────────────
 
     private ModuleNarrative parseModuleNarrative(String moduleName,
